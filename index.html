@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>幸运大转盘</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#14101f">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--acc:#ff4d8d;--gold:#ffd166;--bg:#14101f}
+body{background:radial-gradient(1200px 800px at 50% -10%,#2b1e4d,#14101f 70%);color:#f4f1fa;font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px 16px 40px}
+h1{font-size:1.9rem;background:linear-gradient(90deg,#ff4d8d,#ffd166,#ff4d8d);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 0 30px rgba(255,77,141,.35);margin:6px 0 2px}
+.sub{color:#a99fc4;font-size:.85rem;margin-bottom:14px}
+.wrap{width:100%;max-width:430px;display:flex;flex-direction:column;align-items:center}
+.wheelbox{position:relative;width:min(88vw,380px);height:min(88vw,380px)}
+canvas#wheel{width:100%;height:100%;filter:drop-shadow(0 0 24px rgba(255,77,141,.35))}
+.pointer{position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-top:30px solid var(--gold);filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));z-index:2}
+.hub{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:74px;height:74px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd166,#e8a13c 60%,#b97a1e);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.05rem;color:#5b3a08;box-shadow:0 0 0 6px rgba(255,209,102,.25),0 4px 14px rgba(0,0,0,.5);z-index:2;cursor:pointer;user-select:none}
+#spinbtn{margin:18px 0 6px;padding:14px 64px;font-size:1.15rem;font-weight:900;color:#3a0e20;background:linear-gradient(180deg,#ffd166,#ff9f43);border:none;border-radius:999px;cursor:pointer;box-shadow:0 0 26px rgba(255,209,102,.45),0 4px 0 #b97a1e;letter-spacing:.2em}
+#spinbtn:active{transform:translateY(3px);box-shadow:0 0 26px rgba(255,209,102,.45),0 1px 0 #b97a1e}
+#spinbtn:disabled{opacity:.55;cursor:default}
+#result{min-height:2.6rem;font-size:1.5rem;font-weight:900;color:var(--gold);text-shadow:0 0 18px rgba(255,209,102,.6);margin:8px 0;text-align:center}
+.opts{width:100%;margin-top:10px}
+.opts label{color:#a99fc4;font-size:.85rem;display:block;margin-bottom:6px}
+textarea{width:100%;min-height:110px;background:#1e1733;border:1px solid #3a2f5c;color:#f4f1fa;border-radius:12px;padding:12px;font-size:.95rem;font-family:inherit;resize:vertical;outline:none}
+textarea:focus{border-color:var(--acc)}
+.row{display:flex;gap:10px;margin-top:10px}
+button.mini{flex:1;padding:10px;border-radius:10px;border:1px solid #3a2f5c;background:#241d40;color:#d9d2ee;font-size:.9rem;cursor:pointer}
+button.mini:active{background:#2e2450}
+#hist{width:100%;margin-top:16px;font-size:.85rem;color:#a99fc4}
+#hist .hitem{background:#1e1733;border:1px solid #332a55;border-radius:8px;padding:7px 12px;margin-top:6px;display:flex;justify-content:space-between}
+#hist .hitem b{color:var(--gold)}
+.float{position:fixed;top:-40px;font-size:1.6rem;pointer-events:none;z-index:99;animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+</style>
+</head>
+<body>
+<h1>🎡 幸运大转盘</h1>
+<div class="sub">夜市抽奖 · 愿赌服输</div>
+<div class="wrap">
+  <div class="wheelbox">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="760" height="760"></canvas>
+    <div class="hub" id="hub">GO</div>
+  </div>
+  <button id="spinbtn">开始转动</button>
+  <div id="result"></div>
+  <div class="opts">
+    <label>选项（每行一个，2–12 个）：</label>
+    <textarea id="ta" placeholder="大餐一顿&#10;奶茶一杯&#10;再睡一小时&#10;……"></textarea>
+    <div class="row">
+      <button class="mini" id="fill">填示例</button>
+      <button class="mini" id="copy">复制结果</button>
+      <button class="mini" id="clearhist">清空记录</button>
+    </div>
+  </div>
+  <div id="hist"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('wheel'),ctx=cv.getContext('2d');
+const PAL=['#ff4d8d','#7c5cff','#00d2be','#ff9f43','#4dc3ff','#a3e635','#ff6b6b','#c77dff','#ffd166','#4dd2ff','#ff8fab','#80ed99'];
+let items=[],angle=0,spinning=false,lastWin='';
+function getItems(){return $('ta').value.split('\n').map(s=>s.trim()).filter(Boolean).slice(0,12)}
+function draw(){
+  const n=items.length,W=760,cx=W/2,cy=W/2,R=370;
+  ctx.clearRect(0,0,W,W);
+  // 外圈灯
+  ctx.save();
+  for(let i=0;i<24;i++){const a=i/24*Math.PI*2;
+    ctx.beginPath();ctx.arc(cx+Math.cos(a)*(R+14),cy+Math.sin(a)*(R+14),7,0,7);
+    ctx.fillStyle=i%2?'#ffd166':'#ff4d8d';ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=12;ctx.fill();}
+  ctx.restore();
+  if(!n){
+    ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.fillStyle='#1e1733';ctx.fill();
+    ctx.fillStyle='#6b6285';ctx.font='40px "PingFang SC",sans-serif';ctx.textAlign='center';
+    ctx.fillText('在下方输入选项',cx,cy-10);ctx.fillText('转盘即刻开张 🎪',cx,cy+45);
+    return;
+  }
+  const seg=Math.PI*2/n;
+  for(let i=0;i<n;i++){
+    const a0=angle+i*seg,a1=a0+seg;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,a0,a1);ctx.closePath();
+    ctx.fillStyle=PAL[i%PAL.length];ctx.fill();
+    ctx.strokeStyle='rgba(20,16,31,.85)';ctx.lineWidth=3;ctx.stroke();
+    // 文字
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(a0+seg/2);
+    ctx.textAlign='right';ctx.fillStyle='#fff';
+    const label=items[i].length>8?items[i].slice(0,8)+'…':items[i];
+    ctx.font=`bold ${n>8?30:36}px "PingFang SC","Microsoft YaHei",sans-serif`;
+    ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=6;
+    ctx.fillText(label,R-24,12);ctx.restore();
+  }
+  ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.strokeStyle='#ffd166';ctx.lineWidth=8;ctx.stroke();
+}
+// 指针在顶部(-90°)。扇区 i 覆盖角度 [angle+i*seg, angle+(i+1)*seg)。
+// 中奖扇区 = 覆盖指针角度(-PI/2)的那个扇区:
+function winnerIndex(){
+  const n=items.length,seg=Math.PI*2/n;
+  let rel=(-Math.PI/2-angle)%(Math.PI*2);if(rel<0)rel+=Math.PI*2;
+  return Math.floor(rel/seg)%n;
+}
+function spin(){
+  if(spinning)return;
+  items=getItems();
+  if(items.length<2){$('result').textContent='⚠️ 至少输入 2 个选项';return}
+  draw();spinning=true;$('spinbtn').disabled=true;$('result').textContent='';
+  const target=winnerIndexTarget();
+  const total=angle+Math.PI*2*6+target; // 6 圈 + 落点
+  const start=angle,dur=4200,t0=performance.now();
+  (function tick(t){
+    const p=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-p,4); // easeOutQuart
+    angle=start+(total-start)*e;draw();
+    if(p<1)requestAnimationFrame(tick);
+    else{spinning=false;$('spinbtn').disabled=false;onWin(winnerIndex())}
+  })(t0);
+}
+// 随机选一个目标扇区, 计算需要转到的相对角度
+function winnerIndexTarget(){
+  const n=items.length,seg=Math.PI*2/n;
+  const win=Math.floor(Math.random()*n);
+  // 要让扇区 win 覆盖指针角 -PI/2: angle ≡ -PI/2 - (win+0.5)*seg (mod seg)
+  const jitter=(Math.random()*0.7+0.15); // 落在扇区内 15%~85% 处, 不贴边
+  let dest=-Math.PI/2-(win+jitter)*seg;
+  let rel=(dest-angle)%(Math.PI*2);if(rel<0)rel+=Math.PI*2;
+  return rel;
+}
+function onWin(i){
+  lastWin=items[i];
+  $('result').textContent='🎉 '+lastWin;
+  confetti();
+  const h=JSON.parse(localStorage.getItem('zhuanpan')||'[]');
+  h.unshift({t:new Date().toLocaleString('zh-CN',{hour12:false}),v:lastWin});
+  localStorage.setItem('zhuanpan',JSON.stringify(h.slice(0,20)));
+  renderHist();
+}
+function confetti(){
+  const em=['🎉','✨','🎊','💰','🌟','🍀'];
+  for(let i=0;i<40;i++){
+    const s=document.createElement('span');s.className='float';
+    s.textContent=em[Math.floor(Math.random()*em.length)];
+    s.style.left=Math.random()*100+'vw';
+    s.style.animationDuration=(1.6+Math.random()*1.6)+'s';
+    document.body.appendChild(s);setTimeout(()=>s.remove(),3400);
+  }
+}
+function renderHist(){
+  const h=JSON.parse(localStorage.getItem('zhuanpan')||'[]');
+  $('hist').innerHTML=h.length?'<div>📜 中奖记录</div>'+h.map(x=>`<div class="hitem"><span>${x.t}</span><b>${esc(x.v)}</b></div>`).join(''):'';
+}
+function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+$('spinbtn').onclick=spin;$('hub').onclick=spin;
+$('ta').oninput=()=>{items=getItems();draw()};
+$('fill').onclick=()=>{$('ta').value='大餐一顿\n奶茶一杯\n再睡一小时\n电影一场\n买新衣服\n存钱！';items=getItems();draw()};
+$('copy').onclick=()=>{if(!lastWin)return;navigator.clipboard.writeText('🎡 幸运大转盘抽中：'+lastWin).then(()=>{const b=$('copy');b.textContent='已复制 ✓';setTimeout(()=>b.textContent='复制结果',1200)})};
+$('clearhist').onclick=()=>{localStorage.removeItem('zhuanpan');renderHist()};
+items=getItems();draw();renderHist();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script>
+</body>
+</html>
